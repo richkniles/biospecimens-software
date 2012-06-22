@@ -1,0 +1,162 @@
+s2o <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/1. Study 2/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 10.0 OxidationRatios.txt", header=T, sep="\t")
+uo <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/2. UCSF/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 10.0 OxidationRatios.txt", header=T, sep="\t")
+mpo <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/3. MWRI Plasma/Peptide and Proteins exports/WeigtedAvg Pepides 95.0 10.0 OxidationRatios.txt", header=T, sep="\t")
+mso <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/4. MWRI Serum/Peptide and Protein exports/WeigtedAvg Pepides 95.0 10.0 OxidationRatios.txt", header=T, sep="\t")
+
+"Eliminate pool data"
+s2o <- s2o[s2o$Trt != "pool",]
+uo <- uo[uo$Trt != "pool",]
+
+"Add log2 ratios"
+s2o$LogRatio <- log2(s2o$Ratio)
+uo$LogRatio  <- log2(uo$Ratio)
+mpo$LogRatio    <- log2(mpo$Ratio)
+mso$LogRatio    <- log2(mso$Ratio)
+
+"Reorder the treatments"
+s2o$Trt <- factor(as.character(s2o$Trt), levels = c("30 min", "RT4D", "37C4D"))
+
+uo$TrtOFT  <- factor(as.character(uo$Trt),  levels = c("O", "FT"))
+uo$TrtFTO  <- factor(as.character(uo$Trt),  levels = c("FT", "O"))
+uo$Trt <- NULL
+
+mpo$TrtCS <- factor(as.character(mpo$SC), levels = c("C", "S"))
+mpo$TrtSC <- factor(as.character(mpo$SC), levels = c("S", "C"))
+mpo$SC <- NULL
+
+mso$TrtCS <- factor(as.character(mso$SC), levels = c("C", "S"))
+mso$TrtSC <- factor(as.character(mso$SC), levels = c("S", "C"))
+mso$SC <- NULL
+
+uo$Patient <- factor(uo$Patient)
+
+makePeptideFrame <- function(x) {
+  x.r <- data.frame(Peptide = unique(x$Peptide))
+  n <- match(x.r$Peptide, x$Peptide)
+  x.r$Accession <- x[n,]$Accession
+  return(x.r)
+}
+
+"Create dataframes with one row for each peptide to recieve analyes"
+s2o.r <- makePeptideFrame(s2o)
+uo.r <- makePeptideFrame(uo)
+mpo.r <- makePeptideFrame(mpo)
+mso.r <- makePeptideFrame(mso)
+
+"Compute the counts of donors for each protein and treatment"
+for (i in 1:dim(s2o.r)[1]) {
+  x <- s2o[s2o$Peptide == s2o.r$Peptide[i],]
+  count30mC   <- length(unique(x[x$Trt  == "30 min" & x$Proc=="CPTAC",]$Donor))
+  countRT4DC  <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="CPTAC",  ]$Donor))
+  count37C4DC <- length(unique(x[x$Trt  == "37C4D" & x$Proc=="CPTAC", ]$Donor))
+  count30mE   <- length(unique(x[x$Trt  == "30 min" & x$Proc=="EDRN",]$Donor))
+  countRT4DE  <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="EDRN",  ]$Donor))
+  count37C4DE <- length(unique(x[x$Trt  == "37C4D" & x$Proc=="EDRN", ]$Donor))
+  s2o.r$minCount[i] <- min(count30mC, countRT4DC, count37C4DC, count30mE, countRT4DE, count37C4DE)
+}
+
+
+
+for (i in 1:dim(uo.r)[1]) {
+  x <- uo[uo$Peptide == uo.r$Peptide[i],]
+  countO  <- length(unique(x[x$TrtOFT  == "O", ]$Patient))
+  countFT <- length(unique(x[x$TrtOFT  == "FT",]$Patient))
+  uo.r$minCount[i] <- min(countO, countFT)
+}
+
+for (i in 1:dim(mpo.r)[1]) {
+  x <- mpo[mpo$Peptide == mpo.r$Peptide[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  mpo.r$minCount[i] <- min(countC, countS)
+}
+
+
+for (i in 1:dim(mso.r)[1]) {
+  x <- mso[mso$Peptide == mso.r$Peptide[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  mso.r$minCount[i] <- min(countC, countS)
+}
+
+s2o.r <- s2o.r[s2o.r$minCount >= 5,]
+s2o.r$minCount <- NULL
+uo.r  <-  uo.r[uo.r$minCount >= 5,]
+uo.r$minCount <- NULL
+mpo.r <- mpo.r[mpo.r$minCount >= 5,]
+mpo.r$minCount <- NULL
+mso.r <- mso.r[mso.r$minCount >= 5,]
+mso.r$minCount <- NULL
+
+"do analyses"
+
+foldChange <- function(T) return(sign(T)*2^abs(T))
+
+for (i in 1:dim(s2o.r)[1]) {
+    x <- s2o[s2o$Peptide == s2o.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ Trt + Proc, x)
+    co <- summary(lmx)$coefficients
+    s2o.r$FCRT4D[i]    <- foldChange(co[2,1])
+    s2o.r$PvalRT4D[i] <- co[2,4]
+    s2o.r$FC37C4D[i]    <- foldChange(co[3,1])
+    s2o.r$Pval37C4D[i] <- co[3,4]
+    s2o.r$FCEDRN[i]    <- foldChange(co[4,1])
+    s2o.r$PvalEDRN[i] <- co[4,4]
+}
+
+for (i in 1:dim(uo.r)[1]) {
+    x <- uo[uo$Peptide == uo.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtOFT, x)
+    co <- summary(lmx)$coefficients
+    uo.r$FCOFT[i]    <- foldChange(co[2,1])
+    uo.r$PvalOFT[i] <- co[2,4]
+}
+
+for (i in 1:dim(mpo.r)[1]) {
+    x <- mpo[mpo$Peptide == mpo.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    mpo.r$FCCSp[i]    <- foldChange(co[2,1])
+    mpo.r$PvalCSp[i] <- co[2,4]
+}
+
+for (i in 1:dim(mso.r)[1]) {
+    x <- mso[mso$Peptide == mso.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    mso.r$FCCSs[i]    <- foldChange(co[2,1])
+    mso.r$PvalCSs[i] <- co[2,4]
+}
+
+"adjust pvalues"
+
+s2o.r$PvalRT4D.bh <- p.adjust(s2o.r$PvalRT4D, "BH")
+s2o.r$Pval37C4D.bh <- p.adjust(s2o.r$Pval37C4D, "BH")
+s2o.r$PvalEDRN.bh <- p.adjust(s2o.r$PvalEDRN, "BH")
+
+uo.r$PvalOFT.bh <- p.adjust(uo.r$PvalOFT, "BH")
+
+mpo.r$PvalCSp.bh <- p.adjust(mpo.r$PvalCSp, "BH")
+
+mso.r$PvalCSs.bh <- p.adjust(mso.r$PvalCSs, "BH")
+
+"reporting out"
+
+dim(s2o.r[s2o.r$PvalRT4D.bh<.05,])
+dim(s2o.r[s2o.r$Pval37C4D.bh<.05,])
+dim(s2o.r[s2o.r$PvalEDRN.bh<.05,])
+
+dim(uo.r[uo.r$PvalOFT.bh <.05,])
+
+dim(mpo.r[mpo.r$PvalCSp.bh <.05,])
+
+dim(mso.r[mso.r$PvalCSs.bh <.05,])
+
+"merging"
+
+all <- merge(s2o.r,uo.r,all.x=T,all.y=T,by=c("Peptide", "Accession"))
+mwris <- merge(mpo.r, mso.r,all.x=T,all.y=T,by=c("Peptide", "Accession"))
+all <- merge(all, mwris, all.x=T, all.y=T, by=c("Peptide", "Accession"))
+
+write.table(all, "/Volumes/lab/Biospecimens-Contract/Rich/Analysis/Results/Four Studies Peptides Oxidation Ratios.txt", sep="\t", row.names=F)
+

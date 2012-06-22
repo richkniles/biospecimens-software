@@ -1,0 +1,224 @@
+"Read in Data"
+s2p <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/1. Study 2/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 95.0 5.txt", header=T, sep="\t")
+up  <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/2. UCSF/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 95.0 5.txt", header=T, sep="\t")
+mpp <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/3. MWRI Plasma/Peptide and Proteins exports/WeigtedAvg Pepides 95.0 95.0 5.txt", header=T, sep="\t")
+msp <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/4. MWRI Serum/Peptide and Protein exports/WeigtedAvg Pepides 95.0 95.0 5.txt", header=T, sep="\t")
+
+"Eliminate pool data"
+s2p <- s2p[s2p$Trt != "pool",]
+up <- up[up$Trt != "P",]
+
+"Add log2 ratios"
+s2p$LogRatio <- log2(s2p$Ratio)
+up$LogRatio  <- log2(up$Ratio)
+mpp$LogRatio    <- log2(mpp$Ratio)
+msp$LogRatio    <- log2(msp$Ratio)
+
+"Reorder the treatments"
+s2p$Trt <- factor(as.character(s2p$Trt), levels = c("30 min", "RT4D", "37C4D"))
+
+up$TrtOFT  <- factor(as.character(up$Trt),  levels = c("O", "FT"))
+up$TrtFTO  <- factor(as.character(up$Trt),  levels = c("FT", "O"))
+up$Trt <- NULL
+
+mpp$TrtCS <- factor(as.character(mpp$SC), levels = c("C", "S"))
+mpp$TrtSC <- factor(as.character(mpp$SC), levels = c("S", "C"))
+mpp$SC <- NULL
+
+msp$TrtCS <- factor(as.character(msp$SC), levels = c("C", "S"))
+msp$TrtSC <- factor(as.character(msp$SC), levels = c("S", "C"))
+msp$SC <- NULL
+
+up$Patient <- factor(up$Patient)
+
+makePeptideFrame <- function(x) {
+  x.r <- data.frame(Peptide = unique(x$Peptide))
+  x.r$Accession <- x[match(x.r$Peptide, x$Peptide),]$Accession
+  return(x.r)
+}
+
+"Create dataframes with one row for each peptide to recieve analyes"
+s2p.r <- makePeptideFrame(s2p)
+up.r <- makePeptideFrame(up)
+mpp.r <- makePeptideFrame(mpp)
+msp.r <- makePeptideFrame(msp)
+
+"Compute the counts of donors for each protein and treatment"
+for (i in 1:dim(s2p.r)[1]) {
+  x <- s2p[s2p$Peptide == s2p.r$Peptide[i],]
+  count30mC     <- length(unique(x[x$Trt  == "30 min" & x$Proc=="CPTAC",]$Donor))
+  countRT4DC    <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="CPTAC",  ]$Donor))
+  count37C4DC   <- length(unique(x[x$Trt  == "37C4D" & x$Proc=="CPTAC", ]$Donor))
+  count30mE     <- length(unique(x[x$Trt  == "30 min" & x$Proc=="EDRN",]$Donor))
+  countRT4DE    <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="EDRN",  ]$Donor))
+  count37C4DE   <- length(unique(x[x$Trt  == "37C4D" & x$Proc=="EDRN", ]$Donor))
+  s2p.r$minCount[i] <- min(count30mC, countRT4DC, count37C4DC, count30mE, countRT4DE, count37C4DE)
+}
+
+
+for (i in 1:dim(up.r)[1]) {
+  x <- up[up$Peptide == up.r$Peptide[i],]
+  countO  <- length(unique(x[x$TrtOFT  == "O", ]$Patient))
+  countFT <- length(unique(x[x$TrtOFT  == "FT",]$Patient))
+  up.r$minCount[i] <- min(countO, countFT)
+}
+
+for (i in 1:dim(mpp.r)[1]) {
+  x <- mpp[mpp$Peptide == mpp.r$Peptide[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  mpp.r$minCount[i] <- min(countC, countS)
+}
+
+for (i in 1:dim(msp.r)[1]) {
+  x <- msp[msp$Peptide == msp.r$Peptide[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  msp.r$minCount[i] <- min(countC, countS)
+}
+
+s2p.r <- s2p.r[s2p.r$minCount >= 5,]
+s2p.r$minCount <- NULL
+ up.r <-  up.r[ up.r$minCount >= 5,]
+ up.r$minCount <- NULL
+mpp.r <- mpp.r[mpp.r$minCount >= 5,]
+mpp.r$minCount <- NULL
+msp.r <- msp.r[msp.r$minCount >= 5,]
+msp.r$minCount <- NULL
+
+"do analyses"
+
+foldChange <- function(T) return(sign(T)*2^abs(T))
+
+for (i in 1:dim(s2p.r)[1]) {
+    x <- s2p[s2p$Peptide == s2p.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ Trt + Proc, x)
+    co <- summary(lmx)$coefficients
+    s2p.r$FCRT4D[i]    <- foldChange(co[2,1])
+    s2p.r$SERT4D[i]    <- co[2,2]
+    s2p.r$PvalRT4D[i] <- co[2,4]
+    s2p.r$FC37C4D[i]    <- foldChange(co[3,1])
+    s2p.r$SE37C4D[i]    <- co[3,2]
+    s2p.r$Pval37C4D[i] <- co[3,4]
+    s2p.r$FCEDRN[i]    <- foldChange(co[4,1])
+    s2p.r$SEEDRN[i]    <- co[4,2]
+    s2p.r$PvalEDRN[i] <- co[4,4]
+    
+    y <- x[x$Trt == "30 min",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2p.r$FCEDRN30m[i]   <- foldChange(co[2,1])
+    s2p.r$SEEDRN30m[i]   <- co[2,2]
+    s2p.r$PvalEDRN30m[i] <- co[2,4]
+    s2p.r$PvalEDRN30m.bh[i] <- 0
+    
+    y <- x[x$Trt == "RT4D",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2p.r$FCEDRNRT4D[i]   <- foldChange(co[2,1])
+    s2p.r$SEEDRNRT4D[i]   <- co[2,2]
+    s2p.r$PvalEDRNRT4D[i] <- co[2,4]
+    s2p.r$PvalEDRNRT4D.bh[i] <- 0
+    
+    y <- x[x$Trt == "37C4D",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2p.r$FCEDRN37C4D[i]   <- foldChange(co[2,1])
+    s2p.r$SEEDRN37C4D[i]   <- co[2,2]
+    s2p.r$PvalEDRN37C4D[i] <- co[2,4]
+    s2p.r$PvalEDRN37C4D.bh[i] <- 0
+    
+}
+
+for (i in 1:dim(up.r)[1]) {
+    x <- up[up$Peptide == up.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtOFT, x)
+    co <- summary(lmx)$coefficients
+    up.r$FCOFT[i]    <- foldChange(co[2,1])
+    up.r$PvalOFT[i] <- co[2,4]
+}
+
+for (i in 1:dim(mpp.r)[1]) {
+    x <- mpp[mpp$Peptide == mpp.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    mpp.r$FCCSp[i]    <- foldChange(co[2,1])
+    mpp.r$PvalCSp[i] <- co[2,4]
+}
+
+for (i in 1:dim(msp.r)[1]) {
+    x <- msp[msp$Peptide == msp.r$Peptide[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    msp.r$FCCSs[i]    <- foldChange(co[2,1])
+    msp.r$PvalCSs[i] <- co[2,4]
+}
+
+"adjust pvalues"
+
+s2p.r$PvalRT4D.bh <- p.adjust(s2p.r$PvalRT4D, "BH")
+s2p.r$Pval37C4D.bh <- p.adjust(s2p.r$Pval37C4D, "BH")
+s2p.r$PvalEDRN.bh <- p.adjust(s2p.r$PvalEDRN, "BH")
+s2p.r$PvalEDRN30m.bh <- p.adjust(s2p.r$PvalEDRN30m, "BH")
+s2p.r$PvalEDRNRT4D.bh <- p.adjust(s2p.r$PvalEDRNRT4D, "BH")
+s2p.r$PvalEDRN37C4D.bh <- p.adjust(s2p.r$PvalEDRN37C4D, "BH")
+
+up.r$PvalOFT.bh <- p.adjust(up.r$PvalOFT, "BH")
+
+mpp.r$PvalCSp.bh <- p.adjust(mpp.r$PvalCS, "BH")
+
+msp.r$PvalCSs.bh <- p.adjust(msp.r$PvalCS, "BH")
+
+"reporting out"
+
+dim(s2p.r[s2p.r$PvalRT4D.bh<.05,])
+dim(s2p.r[s2p.r$Pval37C4D.bh<.05,])
+dim(s2p.r[s2p.r$PvalEDRN.bh<.05,])
+
+dim(up.r[up.r$PvalOFT.bh <.05,])
+
+dim(mpp.r[mpp.r$PvalCSp.bh <.05,])
+
+dim(msp.r[msp.r$PvalCSs.bh <.05,])
+
+all <- merge(s2p.r,up.r,all.x=T,all.y=T,by=c("Peptide", "Accession"))
+mwris <- merge(mpp.r, msp.r,all.x=T,all.y=T,by=c("Peptide", "Accession"))
+all <- merge(all, mwris, all.x=T, all.y=T, by=c("Peptide", "Accession"))
+
+write.table(all, "/Volumes/lab/Biospecimens-Contract/Rich/Analysis/Results/Four Studies Peptides.txt", sep="\t", row.names=F)
+
+### Analyze positions
+
+pdf("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/Peptide Plots Study 2__v2.pdf") 
+
+s2p$Position = s2p$Start / (s2p$ProteinLen - s2p$Start + s2p$End)
+s2p.r$Position = s2p[match(s2p.r$Peptide,s2p$Peptide),]$Position
+hist(s2p.r[s2p.r$Pval37C4D.bh<.05,]$Position, xlab="Relative position of peptide in protein", main="Significant Peptides (37° 96h)")
+hist(s2p.r$Position, xlab="Relative position of peptide in protein", main="All Peptides")
+
+## fold change plots
+plotVals <- function(df, c, lab) {
+ pValColumn = match(paste("Pval", c, sep=""), names(df))
+ FCColumn   = match(paste("FC",   c, sep=""), names(df))
+ SEColumn   = match(paste("SE",   c, sep=""), names(df))
+ pValBHColumn   = match(paste("Pval",   c, ".bh", sep=""), names(df))
+ o = order(df[,pValColumn])
+ x = 1:dim(df)[1]
+ y = unFoldChange(df[o,FCColumn])
+ err = df[o,SEColumn]
+ min = min(y-err)
+ max = max(y+err) 
+ plot(x, y, xlab=paste("Rank by p-value", lab), ylab = "Log2 Fold Change", ylim = c(-5,5), 
+                main = paste("Study 2 Peptide Fold Change ", lab))
+ arrows(x, y+err, x, y-err, angle=90, code=3, length=.01)
+ numSig = dim(   df[df[,pValBHColumn]<.05,]  )[1]
+ numSig = numSig + 0.5
+ lines(c(numSig,numSig),c(-6,6), col="red")
+}
+plotVals(s2p.r, "37C4D", "37° 96h")
+plotVals(s2p.r, "RT4D", "20° 96h")
+plotVals(s2p.r, "EDRN30m", "EDRN vs CPTAC at 30 min")
+plotVals(s2p.r, "EDRNRT4D", "EDRN vs CPTAC at 20° 96h")
+plotVals(s2p.r, "EDRN37C4D", "EDRN vs CPTAC at 37° 96h")
+plotVals(testDF.r, "", "Random Data")
+dev.off()

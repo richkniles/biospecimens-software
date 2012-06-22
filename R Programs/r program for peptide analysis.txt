@@ -1,0 +1,292 @@
+mwria <- read.table("/Volumes/work/lab/Biospecimens-Contract/Rich/aligns/MWRI/MWRI Plasma Alignment for R all prots.txt", header=T,sep="\t")
+mwria.r <- data.frame(Accession = unique(mwri$Accession))
+ucsfa <- read.table("/Volumes/work/lab/Biospecimens-Contract/Rich/aligns/UCSF/UCSF Alignment for R all prots.txt", header=T, sep="\t")
+ucsfa.r <- makeFrame(ucsfa)
+study2a <- read.table("/Volumes/work/lab/Biospecimens-Contract/Rich/aligns/Study 2/Study 2 Alignment for R all prots.txt", header=T, sep="\t")
+study2a.r <- makeFrame(study2a)
+
+int2 <- function(a,b) {
+  x <- a[a$Accession %in% as.character(b$Accession),];
+  return(x);
+}
+int3 <- function(a,b,c) return(int2(int2(a,b),c));
+int4 <- function(a,b,c,d) return(int2(int3(a,b,c),d))
+
+dint4 <- function(a,b,c,d) return(dim(int4(a,b,c,d))[1])
+
+venn4 <- function(a,b,c,d) {
+  da <- dim(a)[1]
+  db <- dim(b)[1]
+  dc <- dim(c)[1]
+  dd <- dim(d)[1]
+  abcd <- dint4(a,b,c,d);
+  abc  <- dint3(a,b,c);
+  abd <- dint3(a,b,d);
+  acd <- dint3(a,c,d);
+  bcd <- dint3(b,d,c);
+  ab <-  dint2(a,b);
+  ac <- dint2(a,c);
+  ad <- dint2(a,d);
+  bc <- dint2(b,c);
+  bd <- dint2(b,d);
+  cd <- dint2(c,d);
+  print(paste("a = ", da, ",b = ", db, ",c= ", dc, ",d=", dc));
+  print(paste("3 with a=", da - ab - ac - ad + abc + abd + acd - abcd));
+  print(paste("3 with b=", db - ab - bc - bd + abc + abd + bcd - abcd));
+  print(paste("3 with c=", dc - ac - bc - cd + abc + bcd + acd - abcd));
+  print(paste("3 with d=", dd - ad - bd - cd + abd + acd + bcd - abcd));
+  print(paste("ab " , ab - abc - abd + abcd));
+  print(paste("ac " , ac - acd - abc + abcd));
+  print(paste("ad ", ad - abd - acd + abcd));
+  print(paste("bc ",  bc - abc - bcd + abcd));
+  print(paste("cd ", cd - acd - bcd + abcd));
+  print(abcd);
+}
+
+
+nasa <- read.table("/Volumes/lab/Matt/NASA CSF/NASA Fe iTRAQ/Copy of Fe Exported Alignment Ratios LOG for R all prots.txt",header=T,sep="\t")
+nasa$Dose <- nasa$Rad
+nasa$Rad <- NULL
+nasa.r <- data.frame(Accession=unique(nasa$Accession))
+nasa.r$Name <- nasa[match(nasa.r$Accession, nasa$Accession),]$Name
+dim(nasa.r)
+nasa$LogRatio <- log2(10^nasa$Ratio)
+nasa$Ratio <- 2^nasa$LogRatio
+nasa$Rat.number <- factor(nasa$Rat.number)
+nasa$Type <- factor(as.character(nasa$Type), levels=c("Old Sham", "Young Rat", "Fe-10cGy", "Fe-100cGy"))
+nasa$Age <- factor(as.character(nasa$Age), levels=c("Y","O"))
+nasaO <- nasa[nasa$Age=="O",]
+
+for (i in 1:dim(nasa.r)[1]) {
+  x <- nasa;
+  x <- x[x$Accession==nasa.r$Accession[i],];
+  nasa.r$countY[i] <- length(unique(x[x$Type=="Young Rat",]$Rat.number))
+  nasa.r$countOS[i] <- length(unique(x[x$Type=="Old Sham",]$Rat.number))
+  nasa.r$count10[i] <- length(unique(x[x$Type=="Fe-10cGy",]$Rat.number))
+  nasa.r$count100[i] <- length(unique(x[x$Type=="Fe-100cGy",]$Rat.number))
+}
+for (i in 1:dim(nasa.r)[1]) nasa.r$minCount[i] <- min(nasa.r$countY[i], nasa.r$countOS[i], nasa.r$count10[i],nasa.r$count100[i])
+nasa.r <- nasa.r[nasa.r$minCount>=3,]
+nasa.rx <- nasa.r[nasa.r$count0 >= 4 & nasa.r$count10 >=4 & nasa.r$count100 >=4,]
+for (i in 1:dim(nasa.r)[1]) {
+  lmx <- lm(LogRatio ~ Type, nasa[nasa$Accession == nasa.r$Accession[i],])
+  tt <- summary(lmx)$coefficients
+  nasa.r$Int[i] <- tt[1,1]
+  nasa.r$PvalInt[i] <- tt[1,4]
+  nasa.r$Y[i] <- tt[2,1]
+  nasa.r$PvalY[i] <- tt[2,4]
+  nasa.r$D10[i] <- tt[3,1]
+  nasa.r$Pval10[i] <- tt[3,4]
+  nasa.r$D100[i] <- tt[4,1]
+  nasa.r$Pval100[i] <- tt[4,4]
+}
+
+for (i in 1:dim(nasa.rx)[1]) {
+  x <- nasaO;
+  x <- x[x$Accession==nasa.rx$Accession[i],];
+  lmx <- lm(LogRatio ~ Rad, x)
+  tt <- summary(lmx)$coefficients
+  nasa.rx$Int[i] <- tt[1,1];
+  nasa.rx$Slope[i] <- tt[2,1];
+  nasa.rx$Pval[i] <- tt[2,4];
+}
+for (i in 1:dim(nasa.r)[1]) {
+  lmx <- lm(LogRatio ~ Type, nasa[nasa$Accession == nasa.r$Accession[i],])
+  an <- anova(lmx)
+  nasa.r$PvalGlobal[i] <- an$"Pr(>F)"[1]
+}
+  
+nasaO$DoseF <- factor(nasaO$Rad)
+for (i in 1:dim(nasa.rx)[1]) {
+  x <- nasaO;
+  x <- x[x$Accession==nasa.rx$Accession[i],];
+  lmx <- lm(LogRatio ~ DoseF, x)
+  tt <- summary(lmx)$coefficients
+  nasa.rx$Pval10x[i] <- tt[2,4];
+}
+> nasaO$DoseF2 <- nasaO$DoseF
+> nasaO[nasaO$DoseF == "100",]$DoseF2 <- "10"
+for (i in 1:dim(nasa.rx)[1]) {
+  x <- nasaO;
+  x <- x[x$Accession==nasa.rx$Accession[i],];
+  lmx <- lm(LogRatio ~ DoseF2, x)
+  tt <- summary(lmx)$coefficients
+  nasa.rx$Pval10x[i] <- tt[2,4];
+}
+nasa.rx <- nasa.rx[order(nasa.rx$Pval10x),]
+par(mfrow=c(3,3))
+for (i in 1:9) boxplot(LogRatio ~ Rad, nasaO[nasaO$Accession==nasa.rx$Accession[i],], main=paste(nasa.rx$Name[i]," p=",formatC(nasa.rx$Pval10x[i],digits=2)),ylim=c(-5,3))
+
+mwris <- read.table("/Volumes/work/lab/Biospecimens-Contract/Expts/iTRAQ/iTRAQ data Magee/MWRI Serum Protein Alignment for R all prots.txt",header=T,sep="\t")
+mwris.r <- data.frame(Accession=unique(mwris$Accession))
+mwris.r$Name <- mwris[match(mwris.r$Accession,mwris$Accession),]$Name
+
+for (i in 1:dim(mwris.r)[1]) {
+  x <- mwris[mwris$Accession==mwris.r$Accession[i],]
+  x.r <-mwris.r
+  mwris.r$Count[i] <- min(length(unique(x[x$SC == "C",]$Code)), length(unique(x[x$SC == "S",]$Code)))
+}
+for (i in 1:dim(mwris.r)[1]) {
+  x <- mwris[mwris$Accession==mwris.r$Accession[i],]
+  lmx <- lm(LogRatio ~ SC, x)
+  tt <- summary(lmx)$coefficients;
+  mwris.r$C[i] <- tt[1,1]
+  mwris.r$PvalC[i] <- tt[1,4]
+  mwris.r$S[i] <- tt[2,1]
+  mwris.r$PvalS[i] <- tt[2,4];
+}
+mwris.r$PvalC.bh <- p.adjust(mwris.r$PvalC, "BH")
+mwris.r$PvalS.bh <- p.adjust(mwris.r$PvalS, "BH")
+
+
+A2MG_HUMAN (Alpha-2-macroglobulin) q=1.2e-16
+A2GL_HUMAN (Leucine-rich alpha-2-glycoprotein) q=0.01
+CO8B_HUMAN (Complement component C8 beta chain) q=0.01
+CO2_HUMAN (Complement C2) q=0.04
+CO8A_HUMAN (Complement component C8 alpha chain) q=0.05
+
+
+
+for (i in 1:dim(mwris.r)[1]) {
+  x <- mwris[mwris$Accession==mwris.r$Accession[i],]
+  wx <- wilcox.test(LogRatio ~ SC, x)
+  mwris.r$PvalWilcox[i] <- wx$p.value
+}
+mwris.r$PvalWilcox.bh <- p.adjust(mwris.r$PvalWilcox, "BH")
+
+x <- runif(10000)
+test$Val <- sign(x-.5)*(abs(x-.5)^.1) + .5
+for (i in 1:1000) {
+	x <- test[test$Peptide==i,]
+  lmx <- lm(Val ~ AB, x)
+  test.r$Pval[i] <- summary(lmx)$coefficients[2,4];
+  wx <- wilcox.test(Val ~ AB, x)
+  test.r$PvalW[i] <- wx$p.value
+}
+test.r$Pval.bh <- p.adjust(test.r$Pval,"BH")
+test.r$PvalW.bh <- p.adjust(test.r$PvalW,"BH")
+dim(test.r[test.r$Pval.bh<.05,])
+test.r[test.r$Pval.bh<.05,]
+dim(test.r[test.r$Pval.bh<.05,])
+
+> ma$Source="a"
+> ms$Source="s"
+mwriboth <- merge(ma,ms,all.x=T,all.y=T)
+mb <- mwriboth
+mb.r <- data.frame(Accession = unique(mb$Accession))
+mb.r$Name <- mb[match(mb.r$Accession, mb$Accession),]$Name
+for (i in 1:dim(mb.r)[1]) {
+  mb.r$Counta[i] <- length(unique(mb[mb$Source=="a" & mb$Accession==mb.r$Accession[i] & mb$SC=="C",]$Code))
+  mb.r$Counts[i] <- length(unique(mb[mb$Source=="s" & mb$Accession==mb.r$Accession[i] & mb$SC=="C",]$Code))
+}
+
+
+for (i in 1:384) {
+  lmx <- lm(LogRatio ~ SC, mp[mp$Accession==mp.prot$Accession[i],], weights=1/Weight)
+  mp.prot$Pval[i] <- summary(lmx)$coefficients[2,4]
+}
+
+for (i in 1:235) {
+  lmx <- lm(LogRatio ~ Trt, s2[s2$Accession==s2.prot$Accession[i],], weights=Weight)
+  tt <- summary(lmx)$coefficients
+  s2.prot$RT4D[i] <- tt[2,1]
+  s2.prot$PvalRT4D[i] <- tt[2,4]
+  s2.prot$T37C[i] <- tt[3,1]
+  s2.prot$Pval37C[i] <- tt[3,4]
+  s2.prot$PvalPool[i] <- tt[4,4];
+}
+
+for (i in 1:70) {
+   x <- s2[s2$Accession==s2.prot$Accession[i],]
+  plot(LogRatio ~ log2(Weight), x[x$Trt=="30 min",],ylim=c(-6,6),xlim=c(-5,5),main=s2.prot$Accession[i]);lines(c(-6,100),c(0,0))
+  par(new=T);
+  plot(LogRatio ~ log2(Weight), x[x$Trt=="RT4D",],col="red",ylim=c(-6,6),xlim=c(-5,5))
+}
+
+s2a <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/1. Study 2/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 95.0 5_OxidationRatios.txt", header=T, sep="\t")
+s2a <- s2a[s2a$Trt != "pool",]
+s2a$Trt <- factor(as.character(s2a$Trt), levels=c("30 min", "RT4D", "37C4D"))
+s2a$LogRatio <- log2(s2a$Ratio)
+s2aPeps <- data.frame(Peptide = unique(s2a$Peptide))
+s2aPeps$Accession <- s2a[match(s2aPeps$Peptide, s2a$Peptide),]$Accession
+s2aPeps$Start <- s2a[match(s2aPeps$Peptide, s2a$Peptide),]$Start
+s2aPeps$End <- s2a[match(s2aPeps$Peptide, s2a$Peptide),]$End
+
+for (i in 1:dim(s2aPeps)[1]) {
+  lmx <- lm(LogRatio ~ Trt + Proc, s2a[s2a$Peptide==s2aPeps$Peptide[i], ], weights=Weight);
+  tt <- summary(lmx)$coefficients
+  s2aPeps$Int[i] <- tt[1,1]
+  s2aPeps$TrtRT4D[i] <- tt[2,1]
+  s2aPeps$PvalRT4D[i] <- tt[2,4]
+  s2aPeps$Trt37C4D[i] <- tt[3,1]
+  s2aPeps$Pval37C4D[i] <- tt[3,4]
+  s2aPeps$ProcEDRN[i] <- tt[4,1]
+  s2aPeps$PvalEDRN[i] <- tt[4,4]
+}
+
+s2aPeps$PvalRT4D.bh <- p.adjust(s2aPeps$PvalRT4D, "BH")
+s2aPeps$Pval37C4D.bh <- p.adjust(s2aPeps$Pval37C4D, "BH")
+s2aPeps$PvalEDRN.bh <- p.adjust(s2aPeps$PvalEDRN, "BH")
+
+par(mfrow=c(3,3))
+for (i in 1:20) {
+	x <- s2a[s2a$Peptide == s2aPeps$Peptide[i],]
+	xmax <- max(x$Weight);
+  plot(LogRatio ~ Weight, x[x$Trt=="30 min",], ylim=c(-2,2),xlim=c(0,xmax), main=paste(s2aPeps$Accession[i], "\n" , s2aPeps$Start[i], "-", s2aPeps$End[i]))
+  t30m <- s2aPeps$Int[i];
+  lines(c(0,xmax),c(t30m,t30m))
+  t37c <- s2aPeps$Trt37C4D[i] + t30m;
+  par(new=T)
+  plot(LogRatio ~ Weight, x[x$Trt=="37C4D",], ylim=c(-2,2),xlim=c(0,xmax),col="red")
+  lines(c(0,xmax),c(t37c,t37c),col="red")
+}
+
+s2a <- s2a[s2a$Trt != "pool",]
+s2a$Trt <- factor(as.character(s2a$Trt), levels=c("30 min", "RT4D",   "37C4D"))
+
+
+for (i in 1:18) {
+	x <- s2a[s2a$Peptide == s2aPeps$Peptide[i] & s2a$Trt != "pool",]
+  plot(LogRatio ~ Trt, x, ylim=c(-2,3), main=paste(s2aPeps$Accession[i], "\n" , s2aPeps$Start[i], "-", s2aPeps$End[i]), ylab="Log Ratio Ox(M)to non Ox")
+}
+
+
+
+//ucsf metox analysis
+u2a <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/2. UCSF/Peptide and Protein Exports/WeigtedAvg Pepides 95.0 10.0 OxidationRatios.txt", header=T, sep="\t")
+u2a$LogRatio <- log2(u2a$Ratio)
+u2a$Patient <- factor(u2a$Patient)
+u2aPeps <- data.frame(Peptide = unique(u2a$Peptide))
+u2aPeps$Accession <- u2a[match(u2aPeps$Peptide, u2a$Peptide),]$Accession
+u2aPeps$Start <- u2a[match(u2aPeps$Peptide, u2a$Peptide),]$Start
+u2aPeps$End <- u2a[match(u2aPeps$Peptide, u2a$Peptide),]$End
+
+
+for (i in 1:dim(u2aPeps)[1]) {
+  x <- u2a[u2a$Peptide == u2aPeps$Peptide[i],]
+  u2aPeps$CountP[i] <- length(unique(x[x$Trt=="P",]$Patient))
+  u2aPeps$CountO[i] <- length(unique(x[x$Trt=="O",]$Patient))
+  u2aPeps$CountFT[i] <- length(unique(x[x$Trt=="FT",]$Patient))
+}
+
+x <- u2aPeps
+x <- x[x$CountFT >= 5 & x$CountO >= 5 & x$CountP==1,]
+u2aPeps <- x
+u2a <-u2a[u2a$Trt != "P",]
+u2a$Trt <- factor(as.character(u2a$Trt), levels = c("P", "O", "FT"))
+
+
+for (i in 1:dim(u2aPeps)[1]) {
+  x <- u2a[u2a$Peptide==u2aPeps$Peptide[i],]
+  lmx <- lm(LogRatio ~ Trt, x, weights=Weight)
+  tt <- summary(lmx)$coefficients
+  u2aPeps$TrtP[i] <- tt[1,1]
+  u2aPeps$PvalP[i] <- tt[1,4]
+  u2aPeps$TrtO[i] <- tt[2,1]
+  u2aPeps$PvalO[i] <- tt[2,4]
+  u2aPeps$TrtFT[i] <- tt[3,1]
+  u2aPeps$PvalFT[i] <- tt[3,4]
+}
+u2aPeps$PvalO.bh <- p.adjust(u2aPeps$PvalO, "BH")
+u2aPeps$PvalFT.bh <- p.adjust(u2aPeps$PvalFT, "BH")
+

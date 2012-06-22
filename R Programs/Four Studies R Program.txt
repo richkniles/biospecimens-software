@@ -1,0 +1,308 @@
+# Read in Data
+s2 <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/1. Study 2/Study 2 Alignment for R all prots.txt", header=T, sep="\t")
+u <-  read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/2. UCSF/UCSF Alignment for R all prots.txt", header=T, sep="\t")
+mp <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/3. MWRI Plasma/MWRI Plasma Alignment for R all prots.txt", header=T, sep="\t")
+ms <- read.table("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/4. MWRI Serum/MWRI Serum Protein Alignment for R all prots.txt", header=T, sep="\t")
+
+# Eliminate NA's
+s2 <- s2[!is.na(s2$Ratio),]
+u  <-  u[!is.na( u$Ratio),]
+mp <- mp[!is.na(mp$Ratio),]
+ms <- ms[!is.na(ms$Ratio),]
+
+# Eliminate pool data
+s2 <- s2[s2$Trt != "pool",]
+u <- u[u$Trt != "P",]
+
+# Eliminate replicates 2 and higher
+s2 <- s2[s2$Replicate == 1,]
+u  <-  u[ u$Replicate == 1,]
+mp <- mp[mp$Replicate == 1,]
+ms <- ms[ms$Replicate == 1,]
+
+# Convert to ratios from log10
+s2$Ratio    <- 10^s2$Ratio
+u$Ratio     <- 10^u$Ratio
+mp$Ratio    <- 10^mp$Ratio
+"ms$Ratio is already ok"
+
+# Add log2 ratios
+s2$LogRatio <- log2(s2$Ratio)
+u$LogRatio  <- log2(u$Ratio)
+mp$LogRatio    <- log2(mp$Ratio)
+ms$LogRatio    <- log2(ms$Ratio)
+
+# Reorder the treatments
+s2$Trt <- factor(as.character(s2$Trt), levels = c("30 min", "RT4D", "37C4D"))
+u$TrtOFT  <- factor(as.character(u$Trt),  levels = c("O", "FT"))
+u$TrtFTO  <- factor(as.character(u$Trt),  levels = c("FT", "O"))
+u$Trt <- NULL
+
+mp$TrtCS <- factor(as.character(mp$SC), levels = c("C", "S"))
+mp$TrtSC <- factor(as.character(mp$SC), levels = c("S", "C"))
+mp$SC <- NULL
+
+ms$TrtCS <- factor(as.character(ms$SC), levels = c("C", "S"))
+ms$TrtSC <- factor(as.character(ms$SC), levels = c("S", "C"))
+ms$SC <- NULL
+
+u$Patient <- factor(u$Patient)
+
+makeResultsFrame <- function(x) {
+  x.r <- data.frame(Accession = unique(x$Accession))
+  x.r$Name <- x[match(x.r$Accession, x$Accession),]$Name
+  return(x.r)
+}
+
+# Create dataframes with one row for each protein to recieve analyes
+s2.r <- makeResultsFrame(s2)
+u.r <- makeResultsFrame(u)
+mp.r <- makeResultsFrame(mp)
+ms.r <- makeResultsFrame(ms)
+
+# Compute the counts of donors for each protein and treatment
+for (i in 1:dim(s2.r)[1]) {
+  x <- s2[s2$Accession == s2.r$Accession[i],]
+  count30mC  <- length(unique(x[x$Trt  == "30 min" & x$Proc=="CPTAC",]$Donor))
+  countRT4DC <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="CPTAC",  ]$Donor))
+  count37C4DC<- length(unique(x[x$Trt  == "37C4D" & x$Proc=="CPTAC", ]$Donor))
+  count30mE  <- length(unique(x[x$Trt  == "30 min" & x$Proc=="EDRN",]$Donor))
+  countRT4DE <- length(unique(x[x$Trt  == "RT4D" & x$Proc=="EDRN",  ]$Donor))
+  count37C4DE<- length(unique(x[x$Trt  == "37C4D" & x$Proc=="EDRN", ]$Donor))
+  s2.r$minCount[i] <- min(count30mC, countRT4DC, count37C4DC, count30mE, countRT4DE, count37C4DE)
+}
+
+
+
+for (i in 1:dim(u.r)[1]) {
+  x <- u[u$Accession == u.r$Accession[i],]
+  countO  <- length(unique(x[x$TrtOFT  == "O", ]$Patient))
+  countFT <- length(unique(x[x$TrtOFT  == "FT",]$Patient))
+  u.r$minCount[i] <- min(countO, countFT)
+}
+
+for (i in 1:dim(mp.r)[1]) {
+  x <- mp[mp$Accession == mp.r$Accession[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  mp.r$minCount[i] <- min(countC, countS)
+}
+
+for (i in 1:dim(ms.r)[1]) {
+  x <- ms[ms$Accession == ms.r$Accession[i],]
+  countC <- length(unique(x[x$TrtCS == "C",]$Code))
+  countS <- length(unique(x[x$TrtCS == "S",]$Code))
+  ms.r$minCount[i] <- min(countC, countS)
+}
+
+
+s2.r <- s2.r[s2.r$minCount >= 5,]
+s2.r$minCount <- NULL
+u.r <- u.r[u.r$minCount >= 5,]
+u.r$minCount <- NULL
+##mp.r$minCount <- NULL
+#ms.r <- ms.r[ms.r$minCount >= 5,]
+#ms.r$minCount <- NULL
+
+# do analyses
+
+foldChange <- function(T) return(sign(T)*2^abs(T))
+
+
+for (i in 1:dim(s2.r)[1]) {
+    x <- s2[s2$Accession == s2.r$Accession[i],]
+    lmx <- lm(LogRatio ~ Trt + Proc, x)
+    co <- summary(lmx)$coefficients
+    s2.r$FCRT4D[i]     <- foldChange(co[2,1])
+    s2.r$SERT4D[i]     <- co[2,2]
+    s2.r$PvalRT4D[i]   <- co[2,4]
+    s2.r$PvalRT4D.bh[i] = 0
+    s2.r$FC37C4D[i]    <- foldChange(co[3,1])
+    s2.r$SE37C4D[i]    <- co[3,2]
+    s2.r$Pval37C4D[i]  <- co[3,4]
+    s2.r$Pval37C4D.bh[i] = 0
+
+    y <- x[x$Trt == "30 min",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2.r$FCEDRN30m[i]   <- foldChange(co[2,1])
+    s2.r$SEEDRN30m[i]   <- co[2,2]
+    s2.r$PvalEDRN30m[i] <- co[2,4]
+    s2.r$PvalEDRN30m.bh[i] <- 0
+    
+    y <- x[x$Trt == "RT4D",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2.r$FCEDRNRT4D[i]   <- foldChange(co[2,1])
+    s2.r$SEEDRNRT4D[i]   <- co[2,2]
+    s2.r$PvalEDRNRT4D[i] <- co[2,4]
+    s2.r$PvalEDRNRT4D.bh[i] <- 0
+    
+    y <- x[x$Trt == "37C4D",]
+    lmy <- lm(LogRatio ~ Proc, y)
+    co <- summary(lmy)$coefficients
+    s2.r$FCEDRN37C4D[i]   <- foldChange(co[2,1])
+    s2.r$SEEDRN37C4D[i]   <- co[2,2]
+    s2.r$PvalEDRN37C4D[i] <- co[2,4]
+    s2.r$PvalEDRN37C4D.bh[i] <- 0
+    
+}
+
+for (i in 1:dim(u.r)[1]) {
+    x <- u[u$Accession == u.r$Accession[i],]
+    lmx <- lm(LogRatio ~ TrtOFT, x)
+    co <- summary(lmx)$coefficients
+    u.r$FCOFT[i]    <- foldChange(co[2,1])
+    u.r$PvalOFT[i] <- co[2,4]
+    u.r$PvalOFT.bh[i] = 0
+}
+
+for (i in 1:dim(mp.r)[1]) {
+    x <- mp[mp$Accession == mp.r$Accession[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    mp.r$FCCSp[i]    <- foldChange(co[2,1])
+    mp.r$PvalCSp[i] <- co[2,4]
+    mp.r$PvalCSp.bh[i] = 0
+}
+
+for (i in 1:dim(ms.r)[1]) {
+    x <- ms[ms$Accession == ms.r$Accession[i],]
+    lmx <- lm(LogRatio ~ TrtCS, x)
+    co <- summary(lmx)$coefficients
+    ms.r$FCCSs[i]    <- foldChange(co[2,1])
+    ms.r$PvalCSs[i] <- co[2,4]
+    ms.r$PvalCSs.bh[i] = 0
+}
+
+# adjust pvalues
+
+s2.r$PvalRT4D.bh <- p.adjust(s2.r$PvalRT4D, "BH")
+s2.r$Pval37C4D.bh <- p.adjust(s2.r$Pval37C4D, "BH")
+s2.r$PvalEDRN.bh <- p.adjust(s2.r$PvalEDRN, "BH")
+s2.r$PvalEDRN30m.bh <- p.adjust(s2.r$PvalEDRN30m, "BH")
+s2.r$PvalEDRNRT4D.bh <- p.adjust(s2.r$PvalEDRNRT4D, "BH")
+s2.r$PvalEDRN37C4D.bh <- p.adjust(s2.r$PvalEDRN37C4D, "BH")
+
+u.r$PvalOFT.bh <- p.adjust(u.r$PvalOFT, "BH")
+
+mp.r$PvalCSp.bh <- p.adjust(mp.r$PvalCSp, "BH")
+
+ms.r$PvalCSs.bh <- p.adjust(ms.r$PvalCSs, "BH")
+
+# reporting out
+
+dim(s2.r[s2.r$PvalRT4D.bh<.05,])
+dim(s2.r[s2.r$Pval37C4D.bh<.05,])
+dim(s2.r[s2.r$PvalEDRN.bh<.05,])
+
+dim(u.r[u.r$PvalOFT.bh <.05,])
+
+dim(mp.r[mp.r$PvalCSp.bh <.05,])
+
+dim(ms.r[ms.r$PvalCSs.bh <.05,])
+
+
+# make plots
+
+plotBoxes <- function(dfmain, dfresults, c, lab) {
+   pValColumn = match(paste("Pval", c, sep=""), names(dfresults))
+   FCColumn   = match(paste("FC",   c, sep=""), names(dfresults))
+   pValBHColumn   = match(paste("Pval",   c, ".bh", sep=""), names(dfresults))
+   x = dfresults[dfresults[,pValBHColumn] < .05,]
+   for (i in 1:dim(x)[1]) {
+     p = x[i,pValColumn]
+     pform = format(p, digits=2, scientific=T)
+     plot(LogRatio ~ Trt, dfmain[dfmain$Accession == x$Accession[i],], main=paste(x$Accession[i], "\np = ", pform, " (", lab, ")", sep=""))
+   }
+}
+
+titlePage <- function(title) {
+  par(mfrow=c(1,1));
+  plot.window(xlim=c(0,1),ylim=c(0,1),mar=rep(0,4)); 
+  plot.new();
+  text(0.5,0.5, title,cex=c(1.4,1))
+}
+
+pdf("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/Study 2 Box Plots.pdf")
+
+titlePage("Study 2 Box Plots")
+par(mfrow=c(3,3))
+plotBoxes(s2, s2.r, "RT4D", "20° 96 hrs")
+par(mfrow=c(3,3))
+plotBoxes(s2, s2.r, "37C4D", "37° 96 hrs")
+par(mfrow=c(3,3))
+plotBoxes(s2, s2.r, "EDRN30m", "EDRNvCPTAC")
+
+dev.off()
+
+
+pdf("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/USCF Box Plots.pdf")
+
+titlePage("UCSF Box Plots")
+par(mfrow=c(3,3))
+u$Trt = u$TrtOFT
+plotBoxes(u, u.r, "OFT", "ThawedvFrozen")
+
+
+dev.off()
+
+pdf("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/MWRI Box Plots.pdf")
+
+titlePage("Plasma Box Plots")
+par(mfrow=c(3,3))
+mp$Trt = mp$TrtCS
+plotBoxes(mp, mp.r, "CSp", "Sample v Control")
+
+titlePage("Serum Box Plot")
+par(mfrow=c(3,3))
+ms$Trt = ms$TrtCS
+plotBoxes(ms, ms.r, "CSs", "Sample v Control")
+
+dev.off()
+
+unFoldChange = function(FC) return(sign(FC)*log2(abs(FC)))
+
+plotVals <- function(df, c, lab) {
+ pValColumn = match(paste("Pval", c, sep=""), names(df))
+ FCColumn   = match(paste("FC",   c, sep=""), names(df))
+ SEColumn   = match(paste("SE",   c, sep=""), names(df))
+ pValBHColumn   = match(paste("Pval",   c, ".bh", sep=""), names(df))
+ o = order(df[,pValColumn])
+ x = 1:dim(df)[1]
+ y = unFoldChange(df[o,FCColumn])
+ err = df[o,SEColumn]
+ min = min(y-err)
+ max = max(y+err) 
+ plot(x, y, xlab=paste("Rank by p-value", lab), ylab = "Log2 Fold Change", ylim = c(-5,5), 
+                main = paste("Study 2 Protein Fold Change ", lab))
+ arrows(x, y+err, x, y-err, angle=90, code=3, length=.01)
+ numSig = dim(   df[df[,pValBHColumn]<.05,]  )[1]
+ numSig = numSig + 0.5
+ lines(c(numSig,numSig),c(-6,6), col="red")
+}
+
+pdf("/Volumes/lab/Biospecimens-Contract/Rich/Analysis/FoldChangePlots w Error Bars.pdf")
+plotVals(s2.r, "RT4D", "20° 96 hrs")
+plotVals(s2.r, "37C4D", "37° 96 hrs")
+plotVals(s2.r, "EDRN37C4D", "EDRN @ 37° vs CPTAC @ 37°")
+plotVals(s2.r, "EDRN30m", "EDRN @ 30min vs CPTAC @ 30min")
+plotVals(s2.r, "EDRNRT4D", "EDRN @ 20° vs CPTAC @ 20°")
+dev.off()
+
+
+
+############################################################################################################33
+############################################################################################################33
+############################################################################################################33
+############################################################################################################33
+############################################################################################################33
+############################################################################################################33
+# merging
+all <- merge(s2.r,u.r,all.x=T,all.y=T,by=c("Accession", "Name"))
+mwris <- merge(mp.r, ms.r,all.x=T,all.y=T,by=c("Accession", "Name"))
+all <- merge(all, mwris, all.x=T, all.y=T, by=c("Accession", "Name"))
+
+write.table(all, "/Volumes/lab/Biospecimens-Contract/Rich/Analysis/Four Studies Proteins results 6-13-12.txt", sep="\t", row.names=F)
+
+
